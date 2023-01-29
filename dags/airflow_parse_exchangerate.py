@@ -39,6 +39,7 @@ def parse_exchangerate(**kwargs):
     username = kwargs['templates_dict']['username']
     password = kwargs['templates_dict']['password']
 
+    
     client = clickhouse_connect.get_client(host=host, port=port, username=username, password=password)
     run_parse(url_template, currency_from, currency_to, is_regular, dt_from, dt_to, client)
     
@@ -46,25 +47,32 @@ def run_parse(url_template, currency_from, currency_to, is_regular, dt_from, dt_
     """
     Парсинг курса валют через API exchangerate.host и загрузка сырых данных в clickhouse
     """
+    # загрузка текущего курса по валютной паре
     if is_regular:
         url = url_template + 'convert?from=' + currency_from + '&to=' + currency_to
         try:
             response = requests.get(url)
             data = response.json()
             if data['result'] is not None:
+                # запуск функции сохранения в clickhouse
                 save_to_clickhouse(client, currency_from + currency_to,  datetime.strptime(data['date'], '%Y-%m-%d'), data['result'])
         except Exception as e:
             print("Ошибка парсинга по url " + str(url) + ". Ошибка: " + str(e))
+    # загрузка исторических данных за промежуток дней
     else:
+        # проверка, что задан промежуток для загрузки исторических данных
         if dt_from is not None and dt_to is not None:
             dt_from = datetime.strptime(dt_from, '%Y-%m-%d')
             dt_to = datetime.strptime(dt_to, '%Y-%m-%d')
+            # цикл по датам заданного промежутка
             while dt_from <= dt_to:                
                 url = url_template + str(dt_from.date()) + '?base=' + currency_from
                 try:
                     response_hist = requests.get(url)
                     data_hist = response_hist.json()
+                    # проверка, что значение получено по корректной валютной паре
                     if data_hist['base'] == currency_from and currency_to in data_hist['rates']:
+                        # запуск функции сохранения в clickhouse
                         save_to_clickhouse(client, currency_from + currency_to, datetime.strptime(data_hist['date'], '%Y-%m-%d'), data_hist['rates'][currency_to])
                 except Exception as e:
                     print("Ошибка парсинга по url " + str(url) + ". Ошибка: " + str(e))
